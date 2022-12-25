@@ -16,8 +16,7 @@ import java.time.Duration;
 import java.util.Collections;
 import java.util.Optional;
 import java.util.Properties;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 import java.util.function.Consumer;
 
 @SpringBootApplication
@@ -30,26 +29,30 @@ public class DemoApplication {
         String topic = "spring-kafka-demo";
 		var producer = new MyProducer( topic );
 
-		new Thread(() -> {
-			for (int i = 0; i < 100; i++) {
-				try {
-					producer.send( Integer.toString( i ) ,"my-topic");
-				} catch (ExecutionException e) {
-					throw new RuntimeException( e );
-				} catch (InterruptedException e) {
-					throw new RuntimeException( e );
-				}
-				System.out.println(i+" sent");
-				try {
-					TimeUnit.SECONDS.sleep( 5 );
-				} catch (InterruptedException e) {
-					throw new RuntimeException( e );
-				}
-			}
-		}).start();
+        ExecutorService fixedPool = Executors.newFixedThreadPool( 100);
+        var launch = new CountDownLatch(10000);
+		fixedPool.submit( new Runnable() {
+                    @Override
+                    public void run() {
+                        for (int i = 0; i < 10000; i++) {
+                        try {
+                            producer.send( Integer.toString( i ) ,"my-topic");
+                            launch.countDown();
+
+                        } catch (ExecutionException e) {
+                            throw new RuntimeException( e );
+                        } catch (InterruptedException e) {
+                            throw new RuntimeException( e );
+                        }
+                        System.out.println(i+" sent");
+                    }
+					}
+        });
+
+		launch.await();
 
 		var consumer = new MyConsumer(topic);
-		consumer.consume(record -> System.out.println( "Got key: " + record.key() + ", value: " + record.value() ));
+		consumer.consume(record -> System.out.println( "Got key: " + record.key() + ", value: " + record.value()+ ", partition: " + record.partition() ));
 		TimeUnit.MINUTES.sleep( 10 );
 		producer.close();
 		consumer.close();
